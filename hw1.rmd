@@ -1,0 +1,207 @@
+---
+title: "Homework 1"
+author: "Stephanie Gluck"
+date: "January 28, 2020"
+output: 
+  html_document: 
+    theme: cerulean
+---
+
+```{r setup, include=FALSE}
+
+library(devtools)
+dev_mode(T)
+
+library(rio)
+library(here)
+#library(tidyverse)
+library(dplyr)
+library(forcats)
+#library("ggplot2", lib.loc="~/R-dev")
+library(ggplot2,  lib.loc="~/R-dev")
+
+theme_set(theme_minimal(base_size = 12))
+
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Read in data 
+
+```{r load data}
+
+pth <- here("data")
+
+myfiles = list.files(path=pth, pattern="*.csv", full.names=T)
+myfiles
+
+data_csv = lapply(myfiles, readr::read_csv)
+
+assessments <- plyr::ldply (data_csv[1], data.frame)
+courses <- plyr::ldply (data_csv[2], data.frame)
+studentAssessment <- plyr::ldply (data_csv[3], data.frame)
+studentInfo <- plyr::ldply (data_csv[4], data.frame)
+studentRegistration <- plyr::ldply (data_csv[5], data.frame)
+studentVle <- plyr::ldply (data_csv[6], data.frame)
+vle <- plyr::ldply (data_csv[7], data.frame)
+
+rm(data_csv)
+
+```
+
+## Joining and data display 
+
+### Average Final Score in relation to Index of Multiple Depravation and Level of Education 
+
+Intersting to note that if you examine the number of students in each education level, there are only 8 students who reported no formal qualification and 14 students who reported post graduate qualificaiton so those two groups are much smaller relative to the remaining three educaiton groups. 
+
+
+```{r data_display1, fig.width = 8, fig.height = 6}
+
+d1 <- left_join(studentInfo, studentAssessment)
+
+d1 <- left_join(d1, assessments) %>%
+  filter(assessment_type == "Exam") %>%  
+  na.omit()
+
+head(d1)
+
+#Box plot 
+ggplot(d1, aes(imd_band, score)) +
+  geom_boxplot(fill = "seagreen4") +
+  coord_flip() + 
+  facet_wrap(~highest_education, 3,2) +
+  labs(x = "Index of Multiple Depravation Band",
+       y = "Average Final Exam Score",
+       title = "Average Final Score in Relation to Index of Multiple Depravation",
+       subtitle = "Results displayed by Level of Education", 
+       caption = "") +
+  theme(plot.title.position = "plot")
+
+d1 %>% group_by(highest_education) %>% summarize(n = n())
+
+```
+
+### Engagement of Pass & Distinction students with the VLE materials in relation to their TMA score 
+
+```{r data_display2, fig.width = 9, fig.height = 7}
+
+tma_key <- assessments %>% 
+  filter(assessment_type == "TMA") %>% 
+  select(-date, -weight)
+
+d2 <- semi_join(studentAssessment, tma_key)
+
+d2 <- left_join(d2, studentInfo) %>% 
+  filter(final_result == "Pass" | final_result == "Distinction")
+
+d2 <- left_join(d2, studentVle)
+
+d2 <- d2 %>% 
+  group_by(code_module, id_student, final_result) %>%
+  summarise(click_m = mean(sum_click),score_m = mean(score, na.rm = T)) %>%
+  na.omit()
+
+head(d2)
+
+#Scatter plot
+ggplot(d2, aes(click_m, score_m)) +
+  geom_point(aes(color = factor(final_result)), size = 2, alpha = 0.4) +
+  geom_smooth(method = lm, col = "#fb9a99", size = 1.5) +
+  facet_wrap(~code_module, 4, 2) +
+  scale_color_brewer("Final Result", 
+                     palette = "Paired") +
+  labs(x = "Average Number of Interactions with Material",
+       y = "Average TMA Score",
+       title = "Student Engagement with the VLE materials",
+       subtitle = "Results displayed by Average TMA Score, Final Result and Course Modules", 
+       caption = "") +
+  theme(plot.title.position = "plot", 
+        legend.position = c(0.8, 0.1))
+
+```
+
+## Distribution of student TMA score by course modules and gender
+
+```{r data_display3, fig.width = 8, fig.height = 9}
+
+d3 <- left_join(studentInfo, studentAssessment)
+
+d3 <- left_join(d3, assessments)
+
+d3 <- d3 %>% filter(final_result != "Withdrawal", assessment_type == "TMA") %>% group_by(code_module, id_student, gender, assessment_type) %>% summarize(score_m = mean(score)) %>% na.omit()
+
+#Sina plot 
+ggplot(d3, aes(code_module, score_m, color = gender)) +
+  ggforce::geom_sina() +
+  scale_color_brewer("Gender", 
+                    palette = "Set1") +
+  theme(legend.direction = "horizontal", 
+        legend.position = "bottom", 
+        legend.key.size = unit(1, "in")) + 
+  guides(colour = guide_legend(override.aes = list(size=5))) + 
+  stat_summary(fun.data=mean_sdl, 
+               fun.args = list(mult=1), 
+               geom="errorbar", 
+               color="gray20", 
+               width=0.2, 
+               size = 1,
+               position = position_dodge(1), 
+               aes(group = gender)) +
+  stat_summary(fun.y=mean, 
+               geom="point", 
+               color="gray20",
+               size = 3,
+               position = position_dodge(1), 
+               aes(group = gender)) +
+  labs(x = "Course Modules",
+       y = "Average TMA Score",
+       title = "Student TMA Score by Course Module and Gender", 
+       subtitle = "Results include students who recieved Final Result Designation of Distinction, Pass and Fail") +
+  theme(plot.title.position = "plot")
+
+```
+
+
+## Reproduce figure
+
+```{r reproduce_fig, fig.width = 7, fig.height = 9}
+
+#Data wrangling to reproduce figure 
+
+figure_d <- left_join(studentInfo, studentAssessment)
+
+figure_d <- left_join(figure_d, assessments) %>%
+  filter(assessment_type == "TMA")
+
+head(figure_d)
+
+figure_d <- figure_d %>% mutate(final_result = as.factor(final_result),
+                  gender = as.factor(gender)) %>% 
+  group_by(final_result, highest_education, gender) %>% 
+  na.omit() %>% 
+  summarize(score = mean(score)) %>% 
+  mutate(facet = factor(final_result, levels = c("Fail", "Withdrawn", "Pass", "Distinction")),
+         education = factor(highest_education, levels = c("Post Graduate Qualification", 
+                                                          "HE Qualification", 
+                                                          "A Level or Equivalent", 
+                                                          "Lower Than A Level", 
+                                                          "No Formal quals")))
+
+ggplot2::ggplot(figure_d, aes(fct_rev(education), score)) +
+  geom_line(aes(group = education), color = "gray50", size = 2) +
+  geom_point(aes(color = gender), size = 3) +
+  facet_wrap( ~ facet, ncol=1) +
+  coord_flip() + 
+  scale_color_brewer("Gender", 
+                    palette = "Set1") +
+  labs(x = "Highest Education",
+       y = "Average Score",
+       title = "Average TMA Scores",
+       subtitle = "Results displayed by Education, Gender and Final Result Designation", 
+       caption = "Data from Kuzilek, Hlosta & Zdrahal (2017).
+       https://analyse.kmi.open.ac.uk/open_dataset") +
+  theme(plot.title.position = "plot")
+
+```
+
+
